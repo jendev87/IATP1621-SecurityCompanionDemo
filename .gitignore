@@ -1,0 +1,48 @@
+# Xcode
+#
+# gitignore contributors: cache if repository contains pre-compiled code:
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode temporary files that should never be committed
+build/
+DerivedData/
+*.moved-aside
+*.xcuserstate
+*.xcscmblueprint
+
+# Xcode User Data and Workspace state
+xcuserdata/
+*.xcuserdatad/
+*.xcuserstate
+project.xcworkspace/xcuserdata/
+
+# macOS System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Swift Package Manager (if used)
+.build/
+
+# Fastlane (if used)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# Temporary & Secret Files
+*.tmp
+*.bak
+*.swp
+*~
+.env
+.env.*
+*.key
+*.pem
+*.p12
