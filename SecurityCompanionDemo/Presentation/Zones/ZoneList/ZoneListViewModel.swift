@@ -54,11 +54,52 @@ enum ZoneListUiState: Equatable {
 final class ZoneListViewModel {
 
     var uiState: ZoneListUiState = .idle
+    var togglingZoneIDs: Set<UUID> = []
+    var operationErrorMessage: String?
 
     private let getZonesUseCase: GetZonesUseCase
+    private let armZoneUseCase: ArmZoneUseCase
+    private let disarmZoneUseCase: DisarmZoneUseCase
 
-    init(getZonesUseCase: GetZonesUseCase) {
+    init(
+        getZonesUseCase: GetZonesUseCase,
+        armZoneUseCase: ArmZoneUseCase,
+        disarmZoneUseCase: DisarmZoneUseCase
+    ) {
         self.getZonesUseCase = getZonesUseCase
+        self.armZoneUseCase = armZoneUseCase
+        self.disarmZoneUseCase = disarmZoneUseCase
+    }
+
+    func isZoneLoading(_ zoneID: UUID) -> Bool {
+        togglingZoneIDs.contains(zoneID)
+    }
+
+    func toggleSecurity(for zone: Zone) async {
+        guard !togglingZoneIDs.contains(zone.id) else { return }
+
+        togglingZoneIDs.insert(zone.id)
+        defer { togglingZoneIDs.remove(zone.id) }
+
+        do {
+            let updatedZone: Zone
+            if zone.state == .armed {
+                updatedZone = try await disarmZoneUseCase.execute(zoneID: zone.id)
+            } else {
+                updatedZone = try await armZoneUseCase.execute(zoneID: zone.id)
+            }
+
+            if case .loaded(var currentZones) = uiState {
+                if let index = currentZones.firstIndex(where: { $0.id == zone.id }) {
+                    currentZones[index] = updatedZone
+                    uiState = .loaded(currentZones)
+                }
+            }
+        } catch let domainError as DomainError {
+            operationErrorMessage = domainError.localizedDescription
+        } catch {
+            operationErrorMessage = "Unable to update the zone security state. Please try again."
+        }
     }
 
     var zones: [Zone] {

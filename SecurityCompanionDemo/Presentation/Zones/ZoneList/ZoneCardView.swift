@@ -9,10 +9,22 @@ import SwiftUI
 
 struct ZoneCardView: View {
     let zone: Zone
+    var isLoading: Bool = false
+    var isEnabled: Bool = true
+    var onToggle: (() -> Void)? = nil
+    var onSelect: (() -> Void)? = nil
 
     private var sensorCountText: String {
         let count = zone.sensors.count
         return count == 1 ? "1 sensor" : "\(count) sensors"
+    }
+
+    private var hasOfflineSensors: Bool {
+        zone.sensors.contains { $0.status == .offline }
+    }
+
+    private var hasLowBatterySensors: Bool {
+        zone.sensors.contains { $0.hasLowBattery }
     }
 
     private var cardAccessibilityLabel: String {
@@ -20,68 +32,119 @@ struct ZoneCardView: View {
     }
 
     var body: some View {
-        HStack(spacing: 16) {
-            // Shield status icon container
-            ZStack {
-                Circle()
-                    .fill(zone.state == .armed ? Color.green.opacity(0.15) : Color.secondary.opacity(0.12))
-                    .frame(width: 46, height: 46)
+        AppCard(
+            borderColor: zone.state == .armed ?
+                AppTheme.Colors.success.opacity(AppTheme.Opacity.borderStroke) : nil
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Top section: Primary navigation header
+                Button(action: { onSelect?() }) {
+                    HStack(spacing: 12) {
+                        // Shield status icon container
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    zone.state == .armed ?
+                                        AppTheme.Colors.success.opacity(AppTheme.Opacity.mediumBackground) :
+                                        AppTheme.Colors.neutral.opacity(AppTheme.Opacity.subtleBackground)
+                                )
+                                .frame(width: 42, height: 42)
 
-                Image(systemName: zone.state == .armed ? "shield.fill" : "shield.slash")
-                    .font(.system(size: 22))
-                    .foregroundStyle(zone.state == .armed ? Color.green : Color.secondary)
-            }
-            .accessibilityHidden(true)
-
-            // Zone details
-            VStack(alignment: .leading, spacing: 4) {
-                Text(zone.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(zone.state == .armed ? Color.green : Color.secondary)
-                        .frame(width: 6, height: 6)
+                            Image(systemName: zone.state == .armed ? "shield.fill" : "shield.slash")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(
+                                    zone.state == .armed ?
+                                        AppTheme.Colors.success :
+                                        AppTheme.Colors.neutral
+                                )
+                        }
                         .accessibilityHidden(true)
 
-                    Text(zone.state == .armed ? "Armed" : "Disarmed")
-                        .font(.subheadline)
-                        .foregroundStyle(zone.state == .armed ? Color.green : Color.secondary)
+                        // Zone title and sensor count
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(zone.name)
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+
+                            Text(sensorCountText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        // Chevron navigation affordance
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(cardAccessibilityLabel)
+                .accessibilityHint("Double tap to view zone details")
+
+                // Bottom section: Semantic badges & Arm/Disarm Toggle
+                HStack(alignment: .center, spacing: 8) {
+                    AppBadge(
+                        zone.state == .armed ? "ARMED" : "DISARMED",
+                        iconName: zone.state == .armed ? "shield.fill" : "shield.slash",
+                        style: zone.state == .armed ? .success : .neutral,
+                        isSmall: true
+                    )
+
+                    if hasOfflineSensors {
+                        AppBadge("OFFLINE", iconName: "exclamationmark.octagon.fill", style: .critical, isSmall: true)
+                    } else if hasLowBatterySensors {
+                        AppBadge("LOW BATT", iconName: "battery.25", style: .warning, isSmall: true)
+                    }
+
+                    Spacer()
+
+                    if let onToggle {
+                        AppZoneToggle(
+                            isArmed: zone.state == .armed,
+                            isLoading: isLoading,
+                            isEnabled: isEnabled,
+                            onToggle: onToggle
+                        )
+                    }
                 }
             }
-
-            Spacer()
-
-            // Navigation Chevron Affordance
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .accessibilityHidden(true)
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(
-                    zone.state == .armed ? Color.green.opacity(0.25) : Color.clear,
-                    lineWidth: 1
-                )
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(cardAccessibilityLabel)
-        .accessibilityHint("Double tap to view zone details")
+        .accessibilityElement(children: .contain)
     }
 }
 
 #Preview {
     VStack(spacing: 12) {
-        ZoneCardView(zone: Zone(id: UUID(), name: "Front Entry & Porch", state: .armed))
-        ZoneCardView(zone: Zone(id: UUID(), name: "Living Room", state: .disarmed))
+        ZoneCardView(
+            zone: Zone(
+                id: UUID(),
+                name: "Front Entry & Porch",
+                state: .armed,
+                sensors: [
+                    Sensor(name: "Door Contact", type: .doorContact, status: .online, batteryLevel: 90),
+                    Sensor(name: "Porch Motion", type: .motion, status: .warning, batteryLevel: 15)
+                ]
+            ),
+            onToggle: {}
+        )
+        ZoneCardView(
+            zone: Zone(
+                id: UUID(),
+                name: "Living Room",
+                state: .disarmed,
+                sensors: [
+                    Sensor(name: "Living Motion", type: .motion, status: .online, batteryLevel: 80)
+                ]
+            ),
+            onToggle: {}
+        )
     }
     .padding()
-    .background(Color(uiColor: .systemGroupedBackground))
+    .background(AppTheme.Colors.screenBackground)
 }

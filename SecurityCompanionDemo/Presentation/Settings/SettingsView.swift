@@ -28,17 +28,14 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
-        .confirmationDialog(
-            "Sign Out",
-            isPresented: $viewModel.showingSignOutConfirmation,
-            titleVisibility: .visible
+        .appConfirmationDialog(
+            title: "Sign Out",
+            message: "Are you sure you want to sign out? Your stored security data and preferences will remain intact.",
+            confirmTitle: "Sign Out",
+            confirmRole: .destructive,
+            isPresented: $viewModel.showingSignOutConfirmation
         ) {
-            Button("Sign Out", role: .destructive) {
-                viewModel.signOut()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Are you sure you want to sign out? Your stored security data and preferences will remain intact.")
+            viewModel.signOut()
         }
     }
 
@@ -137,16 +134,15 @@ struct SettingsView: View {
 
     private var signOutSection: some View {
         Section {
-            Button(role: .destructive) {
+            AppButton(
+                "Sign Out",
+                iconName: "rectangle.portrait.and.arrow.right",
+                variant: .destructive
+            ) {
                 viewModel.showingSignOutConfirmation = true
-            } label: {
-                HStack {
-                    Spacer()
-                    Text("Sign Out")
-                        .fontWeight(.semibold)
-                    Spacer()
-                }
             }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
         }
     }
 }

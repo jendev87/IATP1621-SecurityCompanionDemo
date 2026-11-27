@@ -20,125 +20,119 @@ struct EventRowView: View {
         "\(event.description), \(event.timestamp.formatted(date: .abbreviated, time: .shortened))"
     }
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            // Severity & Type Icon
-            ZStack {
-                Circle()
-                    .fill(severityBackgroundColor)
-                    .frame(width: 44, height: 44)
-
-                Image(systemName: event.type.systemImageName)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(severityColor)
-            }
-            .accessibilityHidden(true)
-
-            // Event Details
-            VStack(alignment: .leading, spacing: 6) {
-                // Top row: Title + Severity Badge
-                HStack(alignment: .center, spacing: 8) {
-                    Text(event.title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-
-                    Spacer()
-
-                    severityBadge
-                }
-
-                // Description
-                Text(event.description)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // Bottom row: Associated Zone (if present) & Formatted Timestamp
-                HStack(spacing: 8) {
-                    if let zoneName = event.zoneName {
-                        HStack(spacing: 4) {
-                            Image(systemName: "mappin.and.ellipse")
-                                .font(.caption2)
-                                .accessibilityHidden(true)
-                            Text(zoneName)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                        }
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
-                        )
-                    }
-
-                    Spacer()
-
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock")
-                            .font(.caption2)
-                            .accessibilityHidden(true)
-                        Text(event.timestamp.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.tertiary)
-                }
-                .padding(.top, 2)
-            }
+    private var borderColor: Color? {
+        switch event.severity {
+        case .critical:
+            return AppTheme.Colors.critical.opacity(AppTheme.Opacity.borderStroke)
+        case .warning:
+            return AppTheme.Colors.warning.opacity(0.2)
+        case .info:
+            return nil
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(
-                    event.severity == .critical ? Color.red.opacity(0.3) :
-                        event.severity == .warning ? Color.orange.opacity(0.2) : Color.clear,
-                    lineWidth: 1
-                )
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilitySummary)
-        .accessibilityValue(accessibilityDetails)
-    }
-
-    // MARK: - Visual Helpers
-
-    private var severityBadge: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(severityColor)
-                .frame(width: 5, height: 5)
-                .accessibilityHidden(true)
-
-            Text(event.severity.displayName.uppercased())
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(severityColor)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(
-            Capsule()
-                .fill(severityBackgroundColor)
-        )
     }
 
     private var severityColor: Color {
         switch event.severity {
         case .info:
-            return .blue
+            return AppTheme.Colors.info
         case .warning:
-            return .orange
+            return AppTheme.Colors.warning
         case .critical:
-            return .red
+            return AppTheme.Colors.critical
         }
     }
 
-    private var severityBackgroundColor: Color {
-        severityColor.opacity(0.12)
+    private var badgeStyle: AppBadgeStyle {
+        switch event.severity {
+        case .info:
+            return .info
+        case .warning:
+            return .warning
+        case .critical:
+            return .critical
+        }
+    }
+
+    var body: some View {
+        AppCard(
+            padding: 14,
+            borderColor: borderColor
+        ) {
+            HStack(alignment: .top, spacing: 14) {
+                // Severity & Type Icon
+                ZStack {
+                    Circle()
+                        .fill(severityColor.opacity(AppTheme.Opacity.subtleBackground))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: event.type.systemImageName)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(severityColor)
+                }
+                .accessibilityHidden(true)
+
+                // Event Details
+                VStack(alignment: .leading, spacing: 6) {
+                    // Top row: Title + Severity Badge
+                    HStack(alignment: .center, spacing: 8) {
+                        Text(event.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+
+                        Spacer()
+
+                        AppBadge(
+                            event.severity.displayName.uppercased(),
+                            style: badgeStyle,
+                            isSmall: true,
+                            showDot: true
+                        )
+                    }
+
+                    // Description
+                    Text(event.description)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    // Bottom row: Associated Zone (if present) & Formatted Timestamp
+                    HStack(spacing: 8) {
+                        if let zoneName = event.zoneName {
+                            HStack(spacing: 4) {
+                                Image(systemName: "mappin.and.ellipse")
+                                    .font(.caption2)
+                                    .accessibilityHidden(true)
+                                Text(zoneName)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                            )
+                        }
+
+                        Spacer()
+
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock")
+                                .font(.caption2)
+                                .accessibilityHidden(true)
+                            Text(event.timestamp.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.tertiary)
+                    }
+                    .padding(.top, 2)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilitySummary)
+        .accessibilityValue(accessibilityDetails)
     }
 }
 
@@ -179,5 +173,5 @@ struct EventRowView: View {
         )
     }
     .padding()
-    .background(Color(uiColor: .systemGroupedBackground))
+    .background(AppTheme.Colors.screenBackground)
 }

@@ -101,7 +101,13 @@ struct LoginView: View {
                 .padding(.horizontal, 24)
 
                 // Sign In Button
-                Button {
+                AppButton(
+                    "Sign In",
+                    iconName: "arrow.right.circle.fill",
+                    variant: .primary,
+                    isLoading: isLoading,
+                    isEnabled: !isLoading && !email.isEmpty
+                ) {
                     Task {
                         isLoading = true
                         // Brief natural delay for realistic simulation
@@ -109,22 +115,7 @@ struct LoginView: View {
                         isLoading = false
                         session.signIn()
                     }
-                } label: {
-                    HStack(spacing: 8) {
-                        if isLoading {
-                            ProgressView()
-                                .tint(.white)
-                        }
-                        Text("Sign In")
-                            .fontWeight(.semibold)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 50)
-                    .padding(.vertical, 4)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.blue)
-                .disabled(isLoading || email.isEmpty)
                 .padding(.horizontal, 24)
 
                 // Mock Session Notice

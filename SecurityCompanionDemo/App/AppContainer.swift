@@ -26,6 +26,9 @@ final class AppContainer {
     let sessionManager: AuthSessionManager
     let preferences: UserPreferences
 
+    /// Background seeding task for initial cold-launch sample data.
+    private(set) var seedTask: Task<Void, Error>?
+
     // MARK: - Initializers
 
     /// Primary production initializer using SwiftData persistence.
@@ -55,12 +58,8 @@ final class AppContainer {
         self.getEventsUseCase = GetEventsUseCase(eventRepository: eventRepo)
 
         // Seed sample zones if persistent store contains no zones
-        Task {
-            do {
-                try await zoneRepo.seedInitialDataIfNeeded(sampleZones: AppContainer.sampleZones)
-            } catch {
-                print("AppContainer: Failed to seed initial zones: \(error)")
-            }
+        self.seedTask = Task {
+            try await zoneRepo.seedInitialDataIfNeeded(sampleZones: AppContainer.sampleZones)
         }
     }
 
@@ -124,7 +123,11 @@ final class AppContainer {
     // MARK: - Factory Methods
 
     func makeZoneListViewModel() -> ZoneListViewModel {
-        ZoneListViewModel(getZonesUseCase: getZonesUseCase)
+        ZoneListViewModel(
+            getZonesUseCase: getZonesUseCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
     }
 
     func makeZoneDetailViewModel(zone: Zone) -> ZoneDetailViewModel {
@@ -141,6 +144,11 @@ final class AppContainer {
 
     func makeSettingsViewModel() -> SettingsViewModel {
         SettingsViewModel(session: sessionManager, preferences: preferences)
+    }
+
+    /// Awaits completion of the initial persistent store seeding if underway.
+    func ensureDataSeeded() async {
+        _ = try? await seedTask?.value
     }
 
     // MARK: - Sample Seed Data

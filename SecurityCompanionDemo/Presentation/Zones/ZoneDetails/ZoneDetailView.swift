@@ -65,7 +65,13 @@ struct ZoneDetailView: View {
             .padding(.top, 6)
 
             // Arm / Disarm Action Button
-            Button {
+            AppButton(
+                viewModel.zone.state == .armed ? "Disarm Zone" : "Arm Zone",
+                iconName: viewModel.zone.state == .armed ? "shield.slash.fill" : "lock.shield.fill",
+                variant: viewModel.zone.state == .armed ? .destructive : .primary,
+                isLoading: viewModel.isLoading,
+                isEnabled: !viewModel.isLoading
+            ) {
                 if viewModel.zone.state == .armed && preferences.requireDisarmConfirmation {
                     showingDisarmConfirmation = true
                 } else {
@@ -73,35 +79,17 @@ struct ZoneDetailView: View {
                         await viewModel.toggleSecurity()
                     }
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    if viewModel.isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    }
-                    Text(viewModel.zone.state == .armed ? "Disarm Zone" : "Arm Zone")
-                        .fontWeight(.semibold)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 48)
-                .padding(.vertical, 4)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(viewModel.zone.state == .armed ? .red : .blue)
-            .disabled(viewModel.isLoading)
-            .confirmationDialog(
-                "Disarm Zone",
-                isPresented: $showingDisarmConfirmation,
-                titleVisibility: .visible
+            .appConfirmationDialog(
+                title: "Disarm Zone",
+                message: "Are you sure you want to disarm \(viewModel.zone.name)?",
+                confirmTitle: "Disarm Zone",
+                confirmRole: .destructive,
+                isPresented: $showingDisarmConfirmation
             ) {
-                Button("Disarm Zone", role: .destructive) {
-                    Task {
-                        await viewModel.toggleSecurity()
-                    }
+                Task {
+                    await viewModel.toggleSecurity()
                 }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Are you sure you want to disarm \(viewModel.zone.name)?")
             }
 
             // Inline Loading Message
@@ -113,19 +101,10 @@ struct ZoneDetailView: View {
 
             // Error Message Banner
             if case .error(let message) = viewModel.operationState {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                    Text(message)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.red.opacity(0.1))
+                AppBanner(
+                    message: message,
+                    style: .error,
+                    iconName: "exclamationmark.triangle.fill"
                 )
             }
         }

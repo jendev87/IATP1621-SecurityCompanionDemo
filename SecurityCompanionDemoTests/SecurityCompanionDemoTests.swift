@@ -53,6 +53,67 @@ actor MockZoneRepository: ZoneRepository {
     }
 }
 
+/// A controllable test double allowing tests to deterministically suspend and resume
+/// an ongoing update operation to verify concurrency and duplicate-request guards.
+actor GatedZoneRepository: ZoneRepository {
+    private var zones: [Zone]
+    private(set) var updateCallCount: Int = 0
+    private var enteredUpdateContinuation: CheckedContinuation<Void, Never>?
+    private var gateContinuation: CheckedContinuation<Void, Never>?
+    private var isGateOpen: Bool = false
+
+    init(zones: [Zone] = []) {
+        self.zones = zones
+    }
+
+    func fetchZones() throws -> [Zone] {
+        zones
+    }
+
+    func fetchZone(id: UUID) throws -> Zone? {
+        zones.first(where: { $0.id == id })
+    }
+
+    func updateZone(_ zone: Zone) async throws {
+        updateCallCount += 1
+
+        // Notify test observer that updateZone has begun execution
+        enteredUpdateContinuation?.resume()
+        enteredUpdateContinuation = nil
+
+        // Suspend until gate is explicitly released
+        if !isGateOpen {
+            await withCheckedContinuation { continuation in
+                gateContinuation = continuation
+            }
+        }
+
+        guard let index = zones.firstIndex(where: { $0.id == zone.id }) else {
+            throw DataError.zoneNotFound
+        }
+        zones[index] = zone
+    }
+
+    func waitUntilEnteredUpdate() async {
+        if updateCallCount > 0 {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            enteredUpdateContinuation = continuation
+        }
+    }
+
+    func releaseGate() {
+        isGateOpen = true
+        gateContinuation?.resume()
+        gateContinuation = nil
+    }
+
+    func getUpdateCallCount() -> Int {
+        updateCallCount
+    }
+}
+
 // MARK: - Unit Tests
 
 final class SecurityCompanionDemoTests: XCTestCase {
@@ -107,7 +168,13 @@ final class SecurityCompanionDemoTests: XCTestCase {
         ]
         let mockRepo = MockZoneRepository(zones: allArmedZones)
         let useCase = GetZonesUseCase(zoneRepository: mockRepo)
-        let viewModel = ZoneListViewModel(getZonesUseCase: useCase)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: mockRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: mockRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: useCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
 
         await viewModel.loadZones()
 
@@ -126,7 +193,13 @@ final class SecurityCompanionDemoTests: XCTestCase {
         ]
         let mockRepo = MockZoneRepository(zones: allDisarmedZones)
         let useCase = GetZonesUseCase(zoneRepository: mockRepo)
-        let viewModel = ZoneListViewModel(getZonesUseCase: useCase)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: mockRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: mockRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: useCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
 
         await viewModel.loadZones()
 
@@ -146,7 +219,13 @@ final class SecurityCompanionDemoTests: XCTestCase {
         ]
         let mockRepo = MockZoneRepository(zones: mixedZones)
         let useCase = GetZonesUseCase(zoneRepository: mockRepo)
-        let viewModel = ZoneListViewModel(getZonesUseCase: useCase)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: mockRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: mockRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: useCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
 
         await viewModel.loadZones()
 
@@ -161,7 +240,13 @@ final class SecurityCompanionDemoTests: XCTestCase {
     func testOverallStatus_whenNoZones_returnsNoZones() async {
         let mockRepo = MockZoneRepository(zones: [])
         let useCase = GetZonesUseCase(zoneRepository: mockRepo)
-        let viewModel = ZoneListViewModel(getZonesUseCase: useCase)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: mockRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: mockRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: useCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
 
         await viewModel.loadZones()
 
@@ -178,7 +263,13 @@ final class SecurityCompanionDemoTests: XCTestCase {
         ])
         await mockRepo.setShouldThrow(true)
         let useCase = GetZonesUseCase(zoneRepository: mockRepo)
-        let viewModel = ZoneListViewModel(getZonesUseCase: useCase)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: mockRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: mockRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: useCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
 
         // Initial load fails
         await viewModel.loadZones()
@@ -199,6 +290,189 @@ final class SecurityCompanionDemoTests: XCTestCase {
         } else {
             XCTFail("Expected .loaded state after retry, but got \(viewModel.uiState)")
         }
+    }
+
+    // MARK: - ZoneListViewModel Toggle Security & Loading State Tests
+
+    @MainActor
+    func testToggleSecurity_whenDisarmed_successfullyArmsZoneAndUpdatesDashboard() async {
+        let zoneID = UUID()
+        let initialZone = Zone(id: zoneID, name: "Living Room", state: .disarmed)
+        let mockRepo = MockZoneRepository(zones: [initialZone])
+        let getZonesUseCase = GetZonesUseCase(zoneRepository: mockRepo)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: mockRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: mockRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: getZonesUseCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
+
+        await viewModel.loadZones()
+        XCTAssertEqual(viewModel.armedCount, 0)
+        XCTAssertEqual(viewModel.disarmedCount, 1)
+
+        await viewModel.toggleSecurity(for: initialZone)
+
+        XCTAssertEqual(viewModel.armedCount, 1)
+        XCTAssertEqual(viewModel.disarmedCount, 0)
+        XCTAssertEqual(viewModel.zones.first?.state, .armed)
+        XCTAssertEqual(viewModel.overallStatus, .allArmed)
+        XCTAssertNil(viewModel.operationErrorMessage)
+    }
+
+    @MainActor
+    func testToggleSecurity_whenArmed_successfullyDisarmsZoneAndUpdatesDashboard() async {
+        let zoneID = UUID()
+        let initialZone = Zone(id: zoneID, name: "Front Door", state: .armed)
+        let mockRepo = MockZoneRepository(zones: [initialZone])
+        let getZonesUseCase = GetZonesUseCase(zoneRepository: mockRepo)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: mockRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: mockRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: getZonesUseCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
+
+        await viewModel.loadZones()
+        XCTAssertEqual(viewModel.armedCount, 1)
+        XCTAssertEqual(viewModel.disarmedCount, 0)
+
+        await viewModel.toggleSecurity(for: initialZone)
+
+        XCTAssertEqual(viewModel.armedCount, 0)
+        XCTAssertEqual(viewModel.disarmedCount, 1)
+        XCTAssertEqual(viewModel.zones.first?.state, .disarmed)
+        XCTAssertEqual(viewModel.overallStatus, .allDisarmed)
+        XCTAssertNil(viewModel.operationErrorMessage)
+    }
+
+    @MainActor
+    func testToggleSecurity_whenOperationFails_leavesZoneStateUnchangedAndSetsError() async {
+        let zoneID = UUID()
+        let initialZone = Zone(id: zoneID, name: "Garage", state: .disarmed)
+        let mockRepo = MockZoneRepository(zones: [initialZone])
+        let getZonesUseCase = GetZonesUseCase(zoneRepository: mockRepo)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: mockRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: mockRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: getZonesUseCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
+
+        await viewModel.loadZones()
+
+        // Make repository fail on update
+        await mockRepo.setShouldThrow(true, error: DataError.zoneNotFound)
+
+        await viewModel.toggleSecurity(for: initialZone)
+
+        // Zone state remains unchanged in viewModel
+        XCTAssertEqual(viewModel.zones.first?.state, .disarmed)
+        XCTAssertEqual(viewModel.disarmedCount, 1)
+        XCTAssertEqual(viewModel.armedCount, 0)
+        XCTAssertNotNil(viewModel.operationErrorMessage)
+    }
+
+    @MainActor
+    func testToggleSecurity_perZoneLoadingState_isClearedAfterSuccess() async {
+        let zoneID = UUID()
+        let initialZone = Zone(id: zoneID, name: "Patio", state: .disarmed)
+        let mockRepo = MockZoneRepository(zones: [initialZone])
+        let getZonesUseCase = GetZonesUseCase(zoneRepository: mockRepo)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: mockRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: mockRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: getZonesUseCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
+
+        await viewModel.loadZones()
+        XCTAssertFalse(viewModel.isZoneLoading(zoneID))
+
+        await viewModel.toggleSecurity(for: initialZone)
+
+        // Loading flag must be false upon completion
+        XCTAssertFalse(viewModel.isZoneLoading(zoneID))
+        XCTAssertTrue(viewModel.togglingZoneIDs.isEmpty)
+    }
+
+    @MainActor
+    func testToggleSecurity_perZoneLoadingState_isClearedAfterFailure() async {
+        let zoneID = UUID()
+        let initialZone = Zone(id: zoneID, name: "Basement", state: .armed)
+        let mockRepo = MockZoneRepository(zones: [initialZone])
+        let getZonesUseCase = GetZonesUseCase(zoneRepository: mockRepo)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: mockRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: mockRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: getZonesUseCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
+
+        await viewModel.loadZones()
+        await mockRepo.setShouldThrow(true, error: DataError.zoneNotFound)
+
+        await viewModel.toggleSecurity(for: initialZone)
+
+        // Loading flag must be cleared even when the use case throws
+        XCTAssertFalse(viewModel.isZoneLoading(zoneID))
+        XCTAssertTrue(viewModel.togglingZoneIDs.isEmpty)
+        XCTAssertNotNil(viewModel.operationErrorMessage)
+    }
+
+    @MainActor
+    func testToggleSecurity_whenAlreadyLoading_ignoresDuplicateToggleRequest() async {
+        let zoneID = UUID()
+        let initialZone = Zone(id: zoneID, name: "Backyard", state: .disarmed)
+        let gatedRepo = GatedZoneRepository(zones: [initialZone])
+        let getZonesUseCase = GetZonesUseCase(zoneRepository: gatedRepo)
+        let armZoneUseCase = ArmZoneUseCase(zoneRepository: gatedRepo)
+        let disarmZoneUseCase = DisarmZoneUseCase(zoneRepository: gatedRepo)
+        let viewModel = ZoneListViewModel(
+            getZonesUseCase: getZonesUseCase,
+            armZoneUseCase: armZoneUseCase,
+            disarmZoneUseCase: disarmZoneUseCase
+        )
+
+        await viewModel.loadZones()
+        XCTAssertFalse(viewModel.isZoneLoading(zoneID))
+
+        // 1 & 2: Start first toggle in background task and wait until updateZone has begun and suspended
+        let firstToggleTask = Task { @MainActor in
+            await viewModel.toggleSecurity(for: initialZone)
+        }
+
+        await gatedRepo.waitUntilEnteredUpdate()
+
+        // Verify that the first toggle is actively in-flight and loading
+        XCTAssertTrue(viewModel.isZoneLoading(zoneID))
+        let initialCallCount = await gatedRepo.getUpdateCallCount()
+        XCTAssertEqual(initialCallCount, 1)
+
+        // 3: Invoke a second toggle for the same zone while the first is ongoing
+        await viewModel.toggleSecurity(for: initialZone)
+
+        // 4: Verify the duplicate request was discarded without invoking updateZone a second time
+        let callCountDuringSecondToggle = await gatedRepo.getUpdateCallCount()
+        XCTAssertEqual(callCountDuringSecondToggle, 1)
+
+        // 5: Release the gate to allow the first operation to complete normally
+        await gatedRepo.releaseGate()
+        await firstToggleTask.value
+
+        // 6: Verify normal completion and that loading state is cleared
+        XCTAssertEqual(viewModel.zones.first?.state, .armed)
+        XCTAssertEqual(viewModel.armedCount, 1)
+        XCTAssertFalse(viewModel.isZoneLoading(zoneID))
+        XCTAssertTrue(viewModel.togglingZoneIDs.isEmpty)
+
+        let finalCallCount = await gatedRepo.getUpdateCallCount()
+        XCTAssertEqual(finalCallCount, 1)
     }
 
     // MARK: - ArmZoneUseCase & DisarmZoneUseCase Business Logic Tests

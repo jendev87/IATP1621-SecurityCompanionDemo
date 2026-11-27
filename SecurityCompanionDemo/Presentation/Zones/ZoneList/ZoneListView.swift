@@ -12,10 +12,25 @@ struct ZoneListView: View {
     @Bindable var viewModel: ZoneListViewModel
     let container: AppContainer
 
+    @State private var selectedZone: Zone?
+    @State private var isNavigatingToDetail: Bool = false
+    @State private var zoneToDisarm: Zone?
+    @State private var showingDisarmConfirmation: Bool = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    if let errorMessage = viewModel.operationErrorMessage {
+                        AppBanner(
+                            message: errorMessage,
+                            style: .error,
+                            onDismiss: {
+                                viewModel.operationErrorMessage = nil
+                            }
+                        )
+                    }
+
                     switch viewModel.uiState {
                     case .idle, .loading:
                         loadingView
@@ -37,6 +52,26 @@ struct ZoneListView: View {
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Security Dashboard")
             .navigationBarTitleDisplayMode(.large)
+            .navigationDestination(isPresented: $isNavigatingToDetail) {
+                if let zone = selectedZone {
+                    ZoneDetailView(
+                        viewModel: container.makeZoneDetailViewModel(zone: zone)
+                    )
+                }
+            }
+            .appConfirmationDialog(
+                title: "Disarm Zone",
+                message: "Are you sure you want to disarm \(zoneToDisarm?.name ?? "this zone")?",
+                confirmTitle: "Disarm Zone",
+                confirmRole: .destructive,
+                isPresented: $showingDisarmConfirmation
+            ) {
+                if let zone = zoneToDisarm {
+                    Task {
+                        await viewModel.toggleSecurity(for: zone)
+                    }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
@@ -62,6 +97,7 @@ struct ZoneListView: View {
                 await viewModel.loadZones()
             }
             .task {
+                await container.ensureDataSeeded()
                 await viewModel.loadZones()
             }
         }
@@ -271,15 +307,29 @@ struct ZoneListView: View {
 
             LazyVStack(spacing: 12) {
                 ForEach(viewModel.zones) { zone in
-                    NavigationLink {
-                        ZoneDetailView(
-                            viewModel: container.makeZoneDetailViewModel(zone: zone)
-                        )
-                    } label: {
-                        ZoneCardView(zone: zone)
-                    }
-                    .buttonStyle(.plain)
+                    ZoneCardView(
+                        zone: zone,
+                        isLoading: viewModel.isZoneLoading(zone.id),
+                        onToggle: {
+                            handleToggle(for: zone)
+                        },
+                        onSelect: {
+                            selectedZone = zone
+                            isNavigatingToDetail = true
+                        }
+                    )
                 }
+            }
+        }
+    }
+
+    private func handleToggle(for zone: Zone) {
+        if zone.state == .armed && container.preferences.requireDisarmConfirmation {
+            zoneToDisarm = zone
+            showingDisarmConfirmation = true
+        } else {
+            Task {
+                await viewModel.toggleSecurity(for: zone)
             }
         }
     }
@@ -334,21 +384,16 @@ struct ZoneListView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
 
-            Button {
+            AppButton(
+                "Try Again",
+                iconName: "arrow.clockwise",
+                variant: .primary,
+                isFullWidth: false
+            ) {
                 Task {
                     await viewModel.loadZones()
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.clockwise")
-                    Text("Try Again")
-                }
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.blue)
             .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)

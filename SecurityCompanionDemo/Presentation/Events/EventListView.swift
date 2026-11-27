@@ -48,34 +48,11 @@ struct EventListView: View {
     // MARK: - Overview Summary
 
     private var simulationNoticeBanner: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "info.circle.fill")
-                .font(.subheadline)
-                .foregroundStyle(.blue)
-                .padding(.top, 1)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Simulated Activity Feed")
-                    .font(.footnote)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.primary)
-
-                Text("Demonstration events generated from mock JSONPlaceholder REST data. This feed does not reflect live physical telemetry.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer()
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.blue.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.blue.opacity(0.18), lineWidth: 1)
+        AppBanner(
+            title: "Simulated Activity Feed",
+            message: "Demonstration events generated from mock JSONPlaceholder REST data. This feed does not reflect live physical telemetry.",
+            style: .info,
+            iconName: "info.circle.fill"
         )
     }
 
@@ -199,21 +176,16 @@ struct EventListView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
 
-            Button {
+            AppButton(
+                "Try Again",
+                iconName: "arrow.clockwise",
+                variant: .primary,
+                isFullWidth: false
+            ) {
                 Task {
                     await viewModel.loadEvents()
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.clockwise")
-                    Text("Try Again")
-                }
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.blue)
             .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
@@ -221,34 +193,13 @@ struct EventListView: View {
     }
 
     private func refreshErrorBanner(message: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "wifi.exclamationmark")
-                .foregroundStyle(.orange)
-                .accessibilityHidden(true)
-
-            Text(message)
-                .font(.footnote)
-                .foregroundStyle(.primary)
-
-            Spacer()
-
-            Button {
+        AppBanner(
+            message: message,
+            style: .warning,
+            iconName: "wifi.exclamationmark",
+            onDismiss: {
                 viewModel.dismissRefreshError()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(6)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss error")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.orange.opacity(0.12))
         )
     }
 }
